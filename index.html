@@ -259,20 +259,32 @@
   }
 
   async function fetchAirbnbCalendar() {
-    const proxies = [
-      url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
-    ];
-
     document.getElementById('status-bar').textContent = "Synchronisation Airbnb...";
 
-    for (let proxy of proxies) {
-      try {
-        const proxyUrl = proxy(airbnbIcalUrl);
-        const res = await fetch(proxyUrl);
-        if (!res.ok) continue;
-        const text = await res.text();
+    // Liste de serveurs relais (si l'un échoue, il passe au suivant)
+    const sources = [
+      async () => {
+        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(airbnbIcalUrl)}`);
+        const data = await res.json();
+        return data.contents;
+      },
+      async () => {
+        const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(airbnbIcalUrl)}`);
+        return await res.text();
+      },
+      async () => {
+        const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(airbnbIcalUrl)}`);
+        return await res.text();
+      },
+      async () => {
+        const res = await fetch(`https://thingproxy.freeboard.io/fetch/${airbnbIcalUrl}`);
+        return await res.text();
+      }
+    ];
 
+    for (let fetchSource of sources) {
+      try {
+        const text = await fetchSource();
         if (text && text.includes("BEGIN:VCALENDAR")) {
           parseICS(text);
           document.getElementById('status-bar').textContent = "Calendrier à jour";
@@ -280,11 +292,11 @@
           return;
         }
       } catch (err) {
-        console.warn("Proxy KO, essai du suivant...", err);
+        console.warn("Tentative suivante...", err);
       }
     }
 
-    document.getElementById('status-bar').textContent = "Synchronisation indisponible";
+    document.getElementById('status-bar').textContent = "Erreur de connexion";
   }
 
   renderCalendar();
