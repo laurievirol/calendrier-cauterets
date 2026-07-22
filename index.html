@@ -185,7 +185,7 @@
   // 1. Calendrier Airbnb
   const airbnbIcalUrl = "https://www.airbnb.fr/calendar/ical/1527390893858819589.ics?t=ec06a18e823e463284f2b9f25dc84f13";
   
-  // 2. Votre Calendrier Google Agenda
+  // 2. REMPLACEZ CETTE VALEUR PAR VOTRE LIEN ICAL GOOGLE CALENDAR
   const googleIcalUrl = "https://calendar.google.com/calendar/ical/laurie.virol.fr%40gmail.com/public/basic.ics";
 
   let currentDate = new Date();
@@ -248,7 +248,7 @@
     }
   }
 
-  function parseICS(icsContent, isGoogle = false) {
+  function parseICS(icsContent, forcePending = false) {
     const events = icsContent.split("BEGIN:VEVENT");
     events.shift();
 
@@ -265,7 +265,7 @@
         let endDate = new Date(parseInt(e.substring(0,4)), parseInt(e.substring(4,6))-1, parseInt(e.substring(6,8)));
 
         const summary = summaryMatch ? summaryMatch[1].toLowerCase() : '';
-        const isPending = isGoogle || summary.includes('attente') || summary.includes('option') || summary.includes('pending');
+        const isPending = forcePending || summary.includes('attente') || summary.includes('option') || summary.includes('pending');
 
         let curr = new Date(startDate);
         while (curr < endDate) {
@@ -312,8 +312,10 @@
     // Charger Airbnb
     await fetchCalendar(airbnbIcalUrl, false);
 
-    // Charger Google Agenda
-    await fetchCalendar(googleIcalUrl, true);
+    // Charger Google Calendar si configuré
+    if (googleIcalUrl && !googleIcalUrl.includes("PASTE_YOUR_GOOGLE")) {
+      await fetchCalendar(googleIcalUrl, true);
+    }
 
     document.getElementById('status-bar').textContent = "Calendrier à jour";
     renderCalendar();
