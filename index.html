@@ -12,8 +12,6 @@
       --bg-free: #e8f5e9;
       --color-busy: #c62828;
       --bg-busy: #ffebee;
-      --color-pending: #4f4f4f;
-      --bg-pending: #e0e0e0;
     }
 
     * { box-sizing: border-box; }
@@ -117,12 +115,6 @@
       text-decoration: line-through;
     }
 
-    .day-cell.pending {
-      background-color: var(--bg-pending);
-      color: var(--color-pending);
-      font-weight: 500;
-    }
-
     .status-bar {
       text-align: center;
       font-size: 0.75rem;
@@ -134,7 +126,7 @@
     .legend {
       display: flex;
       justify-content: center;
-      gap: 15px;
+      gap: 20px;
       padding: 12px;
       background: #f9f9f9;
       font-size: 0.85rem;
@@ -144,7 +136,7 @@
     .legend-item {
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 6px;
     }
 
     .legend-box {
@@ -155,7 +147,6 @@
 
     .legend-box.free { background: var(--color-free); }
     .legend-box.busy { background: var(--color-busy); }
-    .legend-box.pending { background: #999999; }
   </style>
 </head>
 <body>
@@ -177,17 +168,14 @@
   <div class="legend">
     <div class="legend-item"><div class="legend-box free"></div> Libre</div>
     <div class="legend-item"><div class="legend-box busy"></div> Occupé</div>
-    <div class="legend-item"><div class="legend-box pending"></div> En attente</div>
   </div>
 </div>
 
 <script>
   const airbnbIcalUrl = "https://www.airbnb.fr/calendar/ical/1527390893858819589.ics?t=ec06a18e823e463284f2b9f25dc84f13";
-  const googleIcalUrl = "https://calendar.google.com/calendar/ical/laurie.virol.fr%40gmail.com/public/basic.ics";
 
   let currentDate = new Date();
   let bookedDates = new Set();
-  let pendingDates = new Set();
 
   function formatDateKey(year, month, day) {
     const y = year;
@@ -226,8 +214,6 @@
 
       if (bookedDates.has(dateString)) {
         dayDiv.classList.add('busy');
-      } else if (pendingDates.has(dateString)) {
-        dayDiv.classList.add('pending');
       } else {
         dayDiv.classList.add('free');
       }
@@ -245,25 +231,19 @@
     }
   }
 
-  function parseICS(icsContent, isGoogle = false) {
+  function parseICS(icsContent) {
+    bookedDates.clear();
+
     const events = icsContent.split("BEGIN:VEVENT");
     events.shift();
 
     events.forEach(evt => {
       const dtstartMatch = evt.match(/DTSTART(?:;VALUE=DATE)?:(\d{8})/);
       const dtendMatch = evt.match(/DTEND(?:;VALUE=DATE)?:(\d{8})/);
-      const summaryMatch = evt.match(/SUMMARY:(.*)/);
 
       if (dtstartMatch && dtendMatch) {
         const s = dtstartMatch[1];
         const e = dtendMatch[1];
-        const summary = summaryMatch ? summaryMatch[1].toLowerCase() : '';
-
-        // Si c'est Google, on vérifie impérativement qu'il y a "attente" ou "option" dans le titre
-        if (isGoogle) {
-          const isOption = summary.includes('attente') || summary.includes('option') || summary.includes('pending');
-          if (!isOption) return; // Si pas de mot-clé, on ignore le rendez-vous perso !
-        }
 
         let startDate = new Date(parseInt(s.substring(0,4)), parseInt(s.substring(4,6))-1, parseInt(s.substring(6,8)));
         let endDate = new Date(parseInt(e.substring(0,4)), parseInt(e.substring(4,6))-1, parseInt(e.substring(6,8)));
@@ -271,58 +251,44 @@
         let curr = new Date(startDate);
         while (curr < endDate) {
           const key = formatDateKey(curr.getFullYear(), curr.getMonth(), curr.getDate());
-          if (isGoogle) {
-            pendingDates.add(key);
-          } else {
-            bookedDates.add(key);
-          }
+          bookedDates.add(key);
           curr.setDate(curr.getDate() + 1);
         }
       }
     });
   }
 
-  async function fetchCalendar(targetUrl, isGoogle) {
+  async function fetchAirbnbCalendar() {
     const proxies = [
       url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
       url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
     ];
 
+    document.getElementById('status-bar').textContent = "Synchronisation Airbnb...";
+
     for (let proxy of proxies) {
       try {
-        const proxyUrl = proxy(targetUrl);
+        const proxyUrl = proxy(airbnbIcalUrl);
         const res = await fetch(proxyUrl);
         if (!res.ok) continue;
         const text = await res.text();
 
         if (text && text.includes("BEGIN:VCALENDAR")) {
-          parseICS(text, isGoogle);
-          return true;
+          parseICS(text);
+          document.getElementById('status-bar').textContent = "Calendrier à jour";
+          renderCalendar();
+          return;
         }
       } catch (err) {
-        console.warn("Proxy KO, essai suivant...", err);
+        console.warn("Proxy KO, essai du suivant...", err);
       }
     }
-    return false;
-  }
 
-  async function loadAllCalendars() {
-    document.getElementById('status-bar').textContent = "Synchronisation...";
-    
-    bookedDates.clear();
-    pendingDates.clear();
-
-    await Promise.all([
-      fetchCalendar(airbnbIcalUrl, false),
-      fetchCalendar(googleIcalUrl, true)
-    ]);
-
-    document.getElementById('status-bar').textContent = "Calendrier à jour";
-    renderCalendar();
+    document.getElementById('status-bar').textContent = "Synchronisation indisponible";
   }
 
   renderCalendar();
-  loadAllCalendars();
+  fetchAirbnbCalendar();
 
   document.getElementById('prev-month').addEventListener('click', () => {
     currentDate.setMonth(currentDate.getMonth() - 1);
