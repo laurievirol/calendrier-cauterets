@@ -171,11 +171,10 @@
 </div>
 
 <script>
-  // VOTRE LIEN ICAL AIRBNB CONFIGURÉ
   const airbnbIcalUrl = "https://www.airbnb.fr/calendar/ical/1527390893858819589.ics?t=ec06a18e823e463284f2b9f25dc84f13";
   
-  // Proxy CORS public pour permettre au navigateur d'accéder au flux iCal
-  const fetchUrl = `https://corsproxy.io/?${encodeURIComponent(airbnbIcalUrl)}`;
+  // Utilisation d'AllOrigins pour outrepasser les règles CORS
+  const fetchUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(airbnbIcalUrl)}`;
 
   let currentDate = new Date();
   let bookedDates = new Set();
@@ -184,7 +183,9 @@
   async function loadIcalData() {
     try {
       const response = await fetch(fetchUrl);
-      const text = await response.text();
+      const data = await response.json();
+      const text = data.contents;
+
       const jcalData = ICAL.parse(text);
       const comp = new ICAL.Component(jcalData);
       const vevents = comp.getAllSubcomponents('vevent');
@@ -196,7 +197,11 @@
 
         let curr = new Date(start);
         while (curr < end) {
-          const dateStr = curr.toISOString().split('T')[0];
+          // Formatage YYYY-MM-DD local
+          const year = curr.getFullYear();
+          const month = String(curr.getMonth() + 1).padStart(2, '0');
+          const day = String(curr.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
           
           if (vevent.summary && vevent.summary.toLowerCase().includes("pending")) {
             pendingDates.add(dateStr);
