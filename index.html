@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Calendrier de Disponibilités</title>
-  <script src="https://cdn.jsdelivr.net/npm/ical.js@1.5.0/build/ical.min.js"></script>
   <style>
     :root {
       --bg-header: #2C4A43;
@@ -16,6 +15,8 @@
       --color-pending: #f57f17;
       --bg-pending: #fffde7;
     }
+
+    * { box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -121,6 +122,14 @@
       color: var(--color-pending);
     }
 
+    .status-bar {
+      text-align: center;
+      font-size: 0.75rem;
+      color: #777;
+      padding: 4px;
+      background: #f0f0f0;
+    }
+
     .legend {
       display: flex;
       justify-content: center;
@@ -153,7 +162,7 @@
 <div class="calendar-container">
   <div class="calendar-header">
     <button class="nav-btn" id="prev-month">&lt;</button>
-    <h2 id="month-year-display"></h2>
+    <h2 id="month-year-display">Chargement...</h2>
     <button class="nav-btn" id="next-month">&gt;</button>
   </div>
 
@@ -162,6 +171,7 @@
   </div>
 
   <div class="days-grid" id="days-container"></div>
+  <div class="status-bar" id="status-bar">Synchronisation...</div>
 
   <div class="legend">
     <div class="legend-item"><div class="legend-box free"></div> Libre</div>
@@ -172,50 +182,16 @@
 
 <script>
   const airbnbIcalUrl = "https://www.airbnb.fr/calendar/ical/1527390893858819589.ics?t=ec06a18e823e463284f2b9f25dc84f13";
-  
-  // Utilisation d'AllOrigins pour outrepasser les règles CORS
-  const fetchUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(airbnbIcalUrl)}`;
 
   let currentDate = new Date();
   let bookedDates = new Set();
   let pendingDates = new Set();
 
-  async function loadIcalData() {
-    try {
-      const response = await fetch(fetchUrl);
-      const data = await response.json();
-      const text = data.contents;
-
-      const jcalData = ICAL.parse(text);
-      const comp = new ICAL.Component(jcalData);
-      const vevents = comp.getAllSubcomponents('vevent');
-
-      vevents.forEach(event => {
-        const vevent = new ICAL.Event(event);
-        let start = vevent.startDate.toJSDate();
-        let end = vevent.endDate.toJSDate();
-
-        let curr = new Date(start);
-        while (curr < end) {
-          // Formatage YYYY-MM-DD local
-          const year = curr.getFullYear();
-          const month = String(curr.getMonth() + 1).padStart(2, '0');
-          const day = String(curr.getDate()).padStart(2, '0');
-          const dateStr = `${year}-${month}-${day}`;
-          
-          if (vevent.summary && vevent.summary.toLowerCase().includes("pending")) {
-            pendingDates.add(dateStr);
-          } else {
-            bookedDates.add(dateStr);
-          }
-          curr.setDate(curr.getDate() + 1);
-        }
-      });
-      renderCalendar();
-    } catch (e) {
-      console.error("Erreur de chargement du calendrier Airbnb :", e);
-      renderCalendar();
-    }
+  function formatDateKey(year, month, day) {
+    const y = year;
+    const m = String(month + 1).padStart(2, '0');
+    const d = String(day).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
 
   function renderCalendar() {
@@ -232,6 +208,7 @@
     const totalDays = new Date(year, month + 1, 0).getDate();
     const prevMonthDays = new Date(year, month, 0).getDate();
 
+    // Jours du mois précédent
     for (let x = firstDayIndex; x > 0; x--) {
       const dayDiv = document.createElement('div');
       dayDiv.classList.add('day-cell', 'other-month');
@@ -239,12 +216,13 @@
       daysContainer.appendChild(dayDiv);
     }
 
+    // Jours du mois actuel
     for (let day = 1; day <= totalDays; day++) {
       const dayDiv = document.createElement('div');
       dayDiv.classList.add('day-cell');
       dayDiv.textContent = day;
 
-      const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dateString = formatDateKey(year, month, day);
 
       if (bookedDates.has(dateString)) {
         dayDiv.classList.add('busy');
@@ -257,8 +235,10 @@
       daysContainer.appendChild(dayDiv);
     }
 
-    const remainingCells = 42 - (firstDayIndex + totalDays);
-    for (let z = 1; z <= remainingCells && remainingCells < 7; z++) {
+    // Jours du mois suivant
+    const totalCellsSoFar = firstDayIndex + totalDays;
+    const remainingCells = (7 - (totalCellsSoFar % 7)) % 7;
+    for (let z = 1; z <= remainingCells; z++) {
       const dayDiv = document.createElement('div');
       dayDiv.classList.add('day-cell', 'other-month');
       dayDiv.textContent = z;
@@ -266,6 +246,80 @@
     }
   }
 
+  // Parseur ICS direct
+  function parseICS(icsContent) {
+    bookedDates.clear();
+    pendingDates.clear();
+
+    const events = icsContent.split("BEGIN:VEVENT");
+    events.shift();
+
+    events.forEach(evt => {
+      const dtstartMatch = evt.match(/DTSTART(?:;VALUE=DATE)?:(\d{8})/);
+      const dtendMatch = evt.match(/DTEND(?:;VALUE=DATE)?:(\d{8})/);
+      const summaryMatch = evt.match(/SUMMARY:(.*)/);
+
+      if (dtstartMatch && dtendMatch) {
+        const s = dtstartMatch[1];
+        const e = dtendMatch[1];
+
+        let startDate = new Date(parseInt(s.substring(0,4)), parseInt(s.substring(4,6))-1, parseInt(s.substring(6,8)));
+        let endDate = new Date(parseInt(e.substring(0,4)), parseInt(e.substring(4,6))-1, parseInt(e.substring(6,8)));
+
+        const summary = summaryMatch ? summaryMatch[1].toLowerCase() : '';
+        const isPending = summary.includes('pending') || summary.includes('attente');
+
+        let curr = new Date(startDate);
+        while (curr < endDate) {
+          const key = formatDateKey(curr.getFullYear(), curr.getMonth(), curr.getDate());
+          if (isPending) {
+            pendingDates.add(key);
+          } else {
+            bookedDates.add(key);
+          }
+          curr.setDate(curr.getDate() + 1);
+        }
+      }
+    });
+  }
+
+  async function fetchWithProxies() {
+    const proxies = [
+      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      url => `https://thingproxy.freeboard.io/fetch/${url}`
+    ];
+
+    document.getElementById('status-bar').textContent = "Synchronisation avec Airbnb...";
+
+    for (let proxy of proxies) {
+      try {
+        const proxyUrl = proxy(airbnbIcalUrl);
+        const res = await fetch(proxyUrl);
+        if (!res.ok) continue;
+        const text = await res.text();
+
+        if (text && text.includes("BEGIN:VCALENDAR")) {
+          parseICS(text);
+          document.getElementById('status-bar').textContent = "Calendrier à jour";
+          renderCalendar();
+          return;
+        }
+      } catch (err) {
+        console.warn("Proxy KO, essai du suivant...", err);
+      }
+    }
+
+    document.getElementById('status-bar').textContent = "Synchronisation indisponible";
+  }
+
+  // 1. Affichage immédiat de la grille
+  renderCalendar();
+
+  // 2. Récupération des données Airbnb
+  fetchWithProxies();
+
+  // Navigation
   document.getElementById('prev-month').addEventListener('click', () => {
     currentDate.setMonth(currentDate.getMonth() - 1);
     renderCalendar();
@@ -275,8 +329,6 @@
     currentDate.setMonth(currentDate.getMonth() + 1);
     renderCalendar();
   });
-
-  loadIcalData();
 </script>
 
 </body>
