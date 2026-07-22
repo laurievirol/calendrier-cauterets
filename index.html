@@ -182,10 +182,7 @@
 </div>
 
 <script>
-  // 1. Calendrier Airbnb
   const airbnbIcalUrl = "https://www.airbnb.fr/calendar/ical/1527390893858819589.ics?t=ec06a18e823e463284f2b9f25dc84f13";
-  
-  // 2. REMPLACEZ CETTE VALEUR PAR VOTRE LIEN ICAL GOOGLE CALENDAR
   const googleIcalUrl = "https://calendar.google.com/calendar/ical/laurie.virol.fr%40gmail.com/public/basic.ics";
 
   let currentDate = new Date();
@@ -248,7 +245,7 @@
     }
   }
 
-  function parseICS(icsContent, forcePending = false) {
+  function parseICS(icsContent, isGoogle = false) {
     const events = icsContent.split("BEGIN:VEVENT");
     events.shift();
 
@@ -260,17 +257,21 @@
       if (dtstartMatch && dtendMatch) {
         const s = dtstartMatch[1];
         const e = dtendMatch[1];
+        const summary = summaryMatch ? summaryMatch[1].toLowerCase() : '';
+
+        // Si c'est Google, on vérifie impérativement qu'il y a "attente" ou "option" dans le titre
+        if (isGoogle) {
+          const isOption = summary.includes('attente') || summary.includes('option') || summary.includes('pending');
+          if (!isOption) return; // Si pas de mot-clé, on ignore le rendez-vous perso !
+        }
 
         let startDate = new Date(parseInt(s.substring(0,4)), parseInt(s.substring(4,6))-1, parseInt(s.substring(6,8)));
         let endDate = new Date(parseInt(e.substring(0,4)), parseInt(e.substring(4,6))-1, parseInt(e.substring(6,8)));
 
-        const summary = summaryMatch ? summaryMatch[1].toLowerCase() : '';
-        const isPending = forcePending || summary.includes('attente') || summary.includes('option') || summary.includes('pending');
-
         let curr = new Date(startDate);
         while (curr < endDate) {
           const key = formatDateKey(curr.getFullYear(), curr.getMonth(), curr.getDate());
-          if (isPending) {
+          if (isGoogle) {
             pendingDates.add(key);
           } else {
             bookedDates.add(key);
@@ -281,11 +282,10 @@
     });
   }
 
-  async function fetchCalendar(targetUrl, isGoogle = false) {
+  async function fetchCalendar(targetUrl, isGoogle) {
     const proxies = [
-      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
       url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-      url => `https://thingproxy.freeboard.io/fetch/${url}`
+      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
     ];
 
     for (let proxy of proxies) {
@@ -300,7 +300,7 @@
           return true;
         }
       } catch (err) {
-        console.warn("Proxy KO, essai du suivant...", err);
+        console.warn("Proxy KO, essai suivant...", err);
       }
     }
     return false;
@@ -309,13 +309,13 @@
   async function loadAllCalendars() {
     document.getElementById('status-bar').textContent = "Synchronisation...";
     
-    // Charger Airbnb
-    await fetchCalendar(airbnbIcalUrl, false);
+    bookedDates.clear();
+    pendingDates.clear();
 
-    // Charger Google Calendar si configuré
-    if (googleIcalUrl && !googleIcalUrl.includes("PASTE_YOUR_GOOGLE")) {
-      await fetchCalendar(googleIcalUrl, true);
-    }
+    await Promise.all([
+      fetchCalendar(airbnbIcalUrl, false),
+      fetchCalendar(googleIcalUrl, true)
+    ]);
 
     document.getElementById('status-bar').textContent = "Calendrier à jour";
     renderCalendar();
