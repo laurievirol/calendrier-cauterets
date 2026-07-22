@@ -12,8 +12,6 @@
       --bg-free: #e8f5e9;
       --color-busy: #c62828;
       --bg-busy: #ffebee;
-      --color-pending: #f57f17;
-      --bg-pending: #fffde7;
     }
 
     * { box-sizing: border-box; }
@@ -117,11 +115,6 @@
       text-decoration: line-through;
     }
 
-    .day-cell.pending {
-      background-color: var(--bg-pending);
-      color: var(--color-pending);
-    }
-
     .status-bar {
       text-align: center;
       font-size: 0.75rem;
@@ -133,7 +126,7 @@
     .legend {
       display: flex;
       justify-content: center;
-      gap: 15px;
+      gap: 20px;
       padding: 12px;
       background: #f9f9f9;
       font-size: 0.85rem;
@@ -154,7 +147,6 @@
 
     .legend-box.free { background: var(--color-free); }
     .legend-box.busy { background: var(--color-busy); }
-    .legend-box.pending { background: var(--color-pending); }
   </style>
 </head>
 <body>
@@ -176,7 +168,6 @@
   <div class="legend">
     <div class="legend-item"><div class="legend-box free"></div> Libre</div>
     <div class="legend-item"><div class="legend-box busy"></div> Occupé</div>
-    <div class="legend-item"><div class="legend-box pending"></div> En attente</div>
   </div>
 </div>
 
@@ -185,7 +176,6 @@
 
   let currentDate = new Date();
   let bookedDates = new Set();
-  let pendingDates = new Set();
 
   function formatDateKey(year, month, day) {
     const y = year;
@@ -226,8 +216,6 @@
 
       if (bookedDates.has(dateString)) {
         dayDiv.classList.add('busy');
-      } else if (pendingDates.has(dateString)) {
-        dayDiv.classList.add('pending');
       } else {
         dayDiv.classList.add('free');
       }
@@ -249,7 +237,6 @@
   // Parseur ICS direct
   function parseICS(icsContent) {
     bookedDates.clear();
-    pendingDates.clear();
 
     const events = icsContent.split("BEGIN:VEVENT");
     events.shift();
@@ -257,7 +244,6 @@
     events.forEach(evt => {
       const dtstartMatch = evt.match(/DTSTART(?:;VALUE=DATE)?:(\d{8})/);
       const dtendMatch = evt.match(/DTEND(?:;VALUE=DATE)?:(\d{8})/);
-      const summaryMatch = evt.match(/SUMMARY:(.*)/);
 
       if (dtstartMatch && dtendMatch) {
         const s = dtstartMatch[1];
@@ -266,17 +252,10 @@
         let startDate = new Date(parseInt(s.substring(0,4)), parseInt(s.substring(4,6))-1, parseInt(s.substring(6,8)));
         let endDate = new Date(parseInt(e.substring(0,4)), parseInt(e.substring(4,6))-1, parseInt(e.substring(6,8)));
 
-        const summary = summaryMatch ? summaryMatch[1].toLowerCase() : '';
-        const isPending = summary.includes('pending') || summary.includes('attente');
-
         let curr = new Date(startDate);
         while (curr < endDate) {
           const key = formatDateKey(curr.getFullYear(), curr.getMonth(), curr.getDate());
-          if (isPending) {
-            pendingDates.add(key);
-          } else {
-            bookedDates.add(key);
-          }
+          bookedDates.add(key);
           curr.setDate(curr.getDate() + 1);
         }
       }
@@ -285,12 +264,13 @@
 
   async function fetchWithProxies() {
     const proxies = [
+      url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
       url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
       url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
       url => `https://thingproxy.freeboard.io/fetch/${url}`
     ];
 
-    document.getElementById('status-bar').textContent = "Synchronisation avec Airbnb...";
+    document.getElementById('status-bar').textContent = "Synchronisation ...";
 
     for (let proxy of proxies) {
       try {
