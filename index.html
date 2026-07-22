@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendrier de Disponibilités</title>
+  <script src="https://cdn.jsdelivr.net/npm/ical.js@1.5.0/build/ical.min.js"></script>
+  <style>
+    :root {
+      --bg-header: #2C4A43;
+      --text-header: #FFFFFF;
+      --color-free: #2e7d32;
+      --bg-free: #e8f5e9;
+      --color-busy: #c62828;
+      --bg-busy: #ffebee;
+      --color-pending: #f57f17;
+      --bg-pending: #fffde7;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 10px;
+      background-color: transparent;
+      color: #333;
+    }
+
+    .calendar-container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .calendar-header {
+      background-color: var(--bg-header);
+      color: var(--text-header);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 20px;
+    }
+
+    .calendar-header h2 {
+      margin: 0;
+      font-size: 1.2rem;
+      font-weight: 500;
+      text-transform: capitalize;
+    }
+
+    .nav-btn {
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      color: white;
+      font-size: 1.2rem;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.4);
+    }
+
+    .weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      background: #f4f6f5;
+      text-align: center;
+      font-weight: bold;
+      font-size: 0.85rem;
+      color: #555;
+      padding: 8px 0;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .days-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+      background-color: #e0e0e0;
+    }
+
+    .day-cell {
+      background-color: white;
+      min-height: 50px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+      position: relative;
+    }
+
+    .day-cell.other-month {
+      background-color: #fafafa;
+      color: #ccc;
+    }
+
+    .day-cell.free {
+      background-color: var(--bg-free);
+      color: var(--color-free);
+      font-weight: 600;
+    }
+
+    .day-cell.busy {
+      background-color: var(--bg-busy);
+      color: var(--color-busy);
+      text-decoration: line-through;
+    }
+
+    .day-cell.pending {
+      background-color: var(--bg-pending);
+      color: var(--color-pending);
+    }
+
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      padding: 12px;
+      background: #f9f9f9;
+      font-size: 0.85rem;
+      border-top: 1px solid #eee;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-box {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+    }
+
+    .legend-box.free { background: var(--color-free); }
+    .legend-box.busy { background: var(--color-busy); }
+    .legend-box.pending { background: var(--color-pending); }
+  </style>
+</head>
+<body>
+
+<div class="calendar-container">
+  <div class="calendar-header">
+    <button class="nav-btn" id="prev-month">&lt;</button>
+    <h2 id="month-year-display"></h2>
+    <button class="nav-btn" id="next-month">&gt;</button>
+  </div>
+
+  <div class="weekdays">
+    <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+  </div>
+
+  <div class="days-grid" id="days-container"></div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-box free"></div> Libre</div>
+    <div class="legend-item"><div class="legend-box busy"></div> Occupé</div>
+    <div class="legend-item"><div class="legend-box pending"></div> En attente</div>
+  </div>
+</div>
+
+<script>
+  // VOTRE LIEN ICAL AIRBNB CONFIGURÉ
+  const airbnbIcalUrl = "https://www.airbnb.fr/calendar/ical/1527390893858819589.ics?t=ec06a18e823e463284f2b9f25dc84f13";
+  
+  // Proxy CORS public pour permettre au navigateur d'accéder au flux iCal
+  const fetchUrl = `https://corsproxy.io/?${encodeURIComponent(airbnbIcalUrl)}`;
+
+  let currentDate = new Date();
+  let bookedDates = new Set();
+  let pendingDates = new Set();
+
+  async function loadIcalData() {
+    try {
+      const response = await fetch(fetchUrl);
+      const text = await response.text();
+      const jcalData = ICAL.parse(text);
+      const comp = new ICAL.Component(jcalData);
+      const vevents = comp.getAllSubcomponents('vevent');
+
+      vevents.forEach(event => {
+        const vevent = new ICAL.Event(event);
+        let start = vevent.startDate.toJSDate();
+        let end = vevent.endDate.toJSDate();
+
+        let curr = new Date(start);
+        while (curr < end) {
+          const dateStr = curr.toISOString().split('T')[0];
+          
+          if (vevent.summary && vevent.summary.toLowerCase().includes("pending")) {
+            pendingDates.add(dateStr);
+          } else {
+            bookedDates.add(dateStr);
+          }
+          curr.setDate(curr.getDate() + 1);
+        }
+      });
+      renderCalendar();
+    } catch (e) {
+      console.error("Erreur de chargement du calendrier Airbnb :", e);
+      renderCalendar();
+    }
+  }
+
+  function renderCalendar() {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+
+    const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+    document.getElementById('month-year-display').textContent = `${monthNames[month]} ${year}`;
+
+    const daysContainer = document.getElementById('days-container');
+    daysContainer.innerHTML = '';
+
+    const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7;
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const prevMonthDays = new Date(year, month, 0).getDate();
+
+    for (let x = firstDayIndex; x > 0; x--) {
+      const dayDiv = document.createElement('div');
+      dayDiv.classList.add('day-cell', 'other-month');
+      dayDiv.textContent = prevMonthDays - x + 1;
+      daysContainer.appendChild(dayDiv);
+    }
+
+    for (let day = 1; day <= totalDays; day++) {
+      const dayDiv = document.createElement('div');
+      dayDiv.classList.add('day-cell');
+      dayDiv.textContent = day;
+
+      const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+      if (bookedDates.has(dateString)) {
+        dayDiv.classList.add('busy');
+      } else if (pendingDates.has(dateString)) {
+        dayDiv.classList.add('pending');
+      } else {
+        dayDiv.classList.add('free');
+      }
+
+      daysContainer.appendChild(dayDiv);
+    }
+
+    const remainingCells = 42 - (firstDayIndex + totalDays);
+    for (let z = 1; z <= remainingCells && remainingCells < 7; z++) {
+      const dayDiv = document.createElement('div');
+      dayDiv.classList.add('day-cell', 'other-month');
+      dayDiv.textContent = z;
+      daysContainer.appendChild(dayDiv);
+    }
+  }
+
+  document.getElementById('prev-month').addEventListener('click', () => {
+    currentDate.setMonth(currentDate.getMonth() - 1);
+    renderCalendar();
+  });
+
+  document.getElementById('next-month').addEventListener('click', () => {
+    currentDate.setMonth(currentDate.getMonth() + 1);
+    renderCalendar();
+  });
+
+  loadIcalData();
+</script>
+
+</body>
+</html>
